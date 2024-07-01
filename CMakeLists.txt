@@ -10,6 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 add_executable(simple_qobject_test 
-src/simple_qobject_test.cpp 
-src/simple_qobject.cpp)
+src/simple_qobject.cpp 
+src/simple_qobject_test.cpp)
 
