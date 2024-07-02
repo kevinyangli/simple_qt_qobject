@@ -98,7 +98,7 @@ int main() {
 
 	// 动态反射部分(动态反射完全不需要知道类型MyStruct的定义)：
 	// 动态创建 MyStruct 实例并调用方法
-	auto instance = refl::dynamic::TypeRegistry::instance().create("MyStruct");
+	auto instance = refl::internal::TypeRegistry::instance().create("MyStruct");
 	if (instance) {
 		std::cout << "Dynamic instance type: " << instance->get_type_name() << std::endl;
 		// 这里可以调用 MyStruct 的成员方法
@@ -144,7 +144,10 @@ int main() {
 
 	// 事件循环部分：
 	std::cout << "---------------------事件循环部分：" << std::endl;
-	refl::CEventLoop loop;
+	base::CEventLoop loop;
+	CWindowsEventLoopHost host;
+	loop.setHost(&host);
+
 	loop.post([]() {
 		std::cout << "Immediate task\n";
 		});//马上执行

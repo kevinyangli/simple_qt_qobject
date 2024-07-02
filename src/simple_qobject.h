@@ -31,36 +31,109 @@ namespace refl {
     static constexpr auto member_funcs() { return std::make_tuple(__VA_ARGS__); }
 
 // 这个宏用于创建属性信息，并自动将字段名转换为字符串
-#define REFLEC_PROPERTY(Name) refl::Property<decltype(&CURRENT_TYPE_NAME::Name), &CURRENT_TYPE_NAME::Name>(#Name)
-#define REFLEC_FUNCTION(Func) refl::Function<decltype(&CURRENT_TYPE_NAME::Func), &CURRENT_TYPE_NAME::Func>(#Func)
+#define REFLEC_PROPERTY(Name) refl::internal::__Property<decltype(&CURRENT_TYPE_NAME::Name), &CURRENT_TYPE_NAME::Name>(#Name)
+#define REFLEC_FUNCTION(Func) refl::internal::__Function<decltype(&CURRENT_TYPE_NAME::Func), &CURRENT_TYPE_NAME::Func>(#Func)
 
-// 定义一个属性结构体，存储字段名称和值的指针
-	template <typename T, T Value>
-	struct Property {
-		const char* name;
-		constexpr Property(const char* name) : name(name) {}
-		constexpr T get_value() const { return Value; }
-	};
-	template <typename T, T Value>
-	struct Function {
-		const char* name;
-		constexpr Function(const char* name) : name(name) {}
-		constexpr T get_func() const { return Value; }
-	};
+	namespace internal {
+		// 定义一个属性结构体，存储字段名称和值的指针
+		template <typename T, T Value>
+		struct __Property {
+			const char* name;
+			constexpr __Property(const char* name) : name(name) {}
+			constexpr T get_value() const { return Value; }
+		};
+		template <typename T, T Value>
+		struct __Function {
+			const char* name;
+			constexpr __Function(const char* name) : name(name) {}
+			constexpr T get_func() const { return Value; }
+		};
 
-	// 使用 std::any 来处理不同类型的字段值和函数返回值
-	template <typename T, typename Tuple, size_t N = 0>
-	std::any __get_field_value_impl(T& obj, const char* name, const Tuple& tp) {
-		if constexpr (N >= std::tuple_size_v<Tuple>) {
-			return std::any();// Not Found!
-		}
-		else {
-			const auto& prop = std::get<N>(tp);
-			if (std::string_view(prop.name) == name) {
-				return std::any(obj.*(prop.get_value()));
+		// 使用 std::any 来处理不同类型的字段值和函数返回值
+		template <typename T, typename Tuple, size_t N = 0>
+		std::any __get_field_value_impl(T& obj, const char* name, const Tuple& tp) {
+			if constexpr (N >= std::tuple_size_v<Tuple>) {
+				return std::any();// Not Found!
 			}
 			else {
-				return __get_field_value_impl<T, Tuple, N + 1>(obj, name, tp);
+				const auto& prop = std::get<N>(tp);
+				if (std::string_view(prop.name) == name) {
+					return std::any(obj.*(prop.get_value()));
+				}
+				else {
+					return __get_field_value_impl<T, Tuple, N + 1>(obj, name, tp);
+				}
+			}
+		}
+
+		// 使用 std::any 来处理不同类型的字段值和函数返回值
+		template <typename T, typename Tuple, typename Value, size_t N = 0>
+		std::any __assign_field_value_impl(T& obj, const char* name, const Value& value, const Tuple& tp) {
+			if constexpr (N >= std::tuple_size_v<Tuple>) {
+				return std::any();// Not Found!
+			}
+			else {
+				const auto& prop = std::get<N>(tp);
+				if (std::string_view(prop.name) == name) {
+					if constexpr (std::is_assignable_v<decltype(obj.*(prop.get_value())), Value>) {
+						obj.*(prop.get_value()) = value;
+						return std::any(obj.*(prop.get_value()));
+					}
+					else {
+						assert(false);// 无法赋值 类型不匹配!!
+						return std::any();
+					}
+				}
+				else {
+					return __assign_field_value_impl<T, Tuple, Value, N + 1>(obj, name, value, tp);
+				}
+			}
+		}
+
+		// 成员函数调用相关:
+		template <bool assert_when_error = true, typename T, typename FuncTuple, size_t N = 0, typename... Args>
+		constexpr std::any __invoke_member_func_impl(T& obj, const char* name, const FuncTuple& tp, Args&&... args) {
+			if constexpr (N >= std::tuple_size_v<FuncTuple>) {
+				assert(!assert_when_error);// 没找到！
+				return std::any();// Not Found!
+			}
+			else {
+				const auto& func = std::get<N>(tp);
+				if (std::string_view(func.name) == name) {
+					if constexpr (std::is_invocable_v<decltype(func.get_func()), T&, Args...>) {
+						if constexpr (std::is_void<decltype(std::invoke(func.get_func(), obj, std::forward<Args>(args)...))>::value) {
+							// 如果函数返回空，那么兼容这种case
+							std::invoke(func.get_func(), obj, std::forward<Args>(args)...);
+							return std::any();
+						}
+						else {
+							return std::invoke(func.get_func(), obj, std::forward<Args>(args)...);
+						}
+					}
+					else {
+						assert(!assert_when_error);// 调用参数不匹配
+						return std::any();
+					}
+				}
+				else {
+					return __invoke_member_func_impl<assert_when_error, T, FuncTuple, N + 1>(obj, name, tp, std::forward<Args>(args)...);
+				}
+			}
+		}
+
+		template <typename T, typename FuncPtr, typename FuncTuple, size_t N = 0>
+		constexpr const char* __get_member_func_name_impl(FuncPtr func_ptr, const FuncTuple& tp) {
+			if constexpr (N >= std::tuple_size_v<FuncTuple>) {
+				return nullptr; // Not Found!
+			}
+			else {
+				const auto& func = std::get<N>(tp);
+				if constexpr (std::is_same< decltype(func.get_func()), FuncPtr >::value) {
+					return func.name;
+				}
+				else {
+					return __get_member_func_name_impl<T, FuncPtr, FuncTuple, N + 1>(func_ptr, tp);
+				}
 			}
 		}
 	}
@@ -70,64 +143,9 @@ namespace refl {
 	std::any get_field_value(T* obj, const char* name) {
 		return obj ? __get_field_value_impl(*obj, name, T::properties_()) : std::any();
 	}
-
-	// 使用 std::any 来处理不同类型的字段值和函数返回值
-	template <typename T, typename Tuple, typename Value, size_t N = 0>
-	std::any __assign_field_value_impl(T& obj, const char* name, const Value& value, const Tuple& tp) {
-		if constexpr (N >= std::tuple_size_v<Tuple>) {
-			return std::any();// Not Found!
-		}
-		else {
-			const auto& prop = std::get<N>(tp);
-			if (std::string_view(prop.name) == name) {
-				if constexpr (std::is_assignable_v<decltype(obj.*(prop.get_value())), Value>) {
-					obj.*(prop.get_value()) = value;
-					return std::any(obj.*(prop.get_value()));
-				}
-				else {
-					assert(false);// 无法赋值 类型不匹配!!
-					return std::any();
-				}
-			}
-			else {
-				return __assign_field_value_impl<T, Tuple, Value, N + 1>(obj, name, value, tp);
-			}
-		}
-	}
 	template <typename T, typename Value>
 	std::any assign_field_value(T* obj, const char* name, const Value& value) {
 		return obj ? __assign_field_value_impl(*obj, name, value, T::properties_()) : std::any();
-	}
-
-	// 成员函数调用相关:
-	template <bool assert_when_error = true, typename T, typename FuncTuple, size_t N = 0, typename... Args>
-	constexpr std::any __invoke_member_func_impl(T& obj, const char* name, const FuncTuple& tp, Args&&... args) {
-		if constexpr (N >= std::tuple_size_v<FuncTuple>) {
-			assert(!assert_when_error);// 没找到！
-			return std::any();// Not Found!
-		}
-		else {
-			const auto& func = std::get<N>(tp);
-			if (std::string_view(func.name) == name) {
-				if constexpr (std::is_invocable_v<decltype(func.get_func()), T&, Args...>) {
-					if constexpr (std::is_void<decltype(std::invoke(func.get_func(), obj, std::forward<Args>(args)...))>::value) {
-						// 如果函数返回空，那么兼容这种case
-						std::invoke(func.get_func(), obj, std::forward<Args>(args)...);
-						return std::any();
-					}
-					else {
-						return std::invoke(func.get_func(), obj, std::forward<Args>(args)...);
-					}
-				}
-				else {
-					assert(!assert_when_error);// 调用参数不匹配
-					return std::any();
-				}
-			}
-			else {
-				return __invoke_member_func_impl<assert_when_error, T, FuncTuple, N + 1>(obj, name, tp, std::forward<Args>(args)...);
-			}
-		}
 	}
 
 	template <typename T, typename... Args>
@@ -139,29 +157,14 @@ namespace refl {
 	template <typename T, typename... Args>
 	constexpr std::any invoke_member_func_safe(T* obj, const char* name, Args&&... args) {
 		constexpr auto funcs = T::member_funcs();
-		return obj ? __invoke_member_func_impl<true>(obj, name, funcs, std::forward<Args>(args)...) : std::any();
+		return obj ? internal::__invoke_member_func_impl<true>(obj, name, funcs, std::forward<Args>(args)...) : std::any();
 	}
 
-	template <typename T, typename FuncPtr, typename FuncTuple, size_t N = 0>
-	constexpr const char* __get_member_func_name_impl(FuncPtr func_ptr, const FuncTuple& tp) {
-		if constexpr (N >= std::tuple_size_v<FuncTuple>) {
-			return nullptr; // Not Found!
-		}
-		else {
-			const auto& func = std::get<N>(tp);
-			if constexpr (std::is_same< decltype(func.get_func()), FuncPtr >::value) {
-				return func.name;
-			}
-			else {
-				return __get_member_func_name_impl<T, FuncPtr, FuncTuple, N + 1>(func_ptr, tp);
-			}
-		}
-	}
 
 	template <typename T, typename FuncPtr>
 	constexpr const char* get_member_func_name(FuncPtr func_ptr) {
 		constexpr auto funcs = T::member_funcs();
-		return __get_member_func_name_impl<T, FuncPtr>(func_ptr, funcs);
+		return internal::__get_member_func_name_impl<T, FuncPtr>(func_ptr, funcs);
 	}
 
 
@@ -198,26 +201,24 @@ namespace refl {
 		}
 	};
 
-	// ===============================================================
-
 	// 以下是动态反射机制的支持代码：
-	namespace dynamic {
-		// 反射基类
-		class IReflectable : public std::enable_shared_from_this<IReflectable> {
-		public:
-			virtual ~IReflectable() = default;
-			virtual std::string_view get_type_name() const = 0;
+	// 反射基类
+	class IReflectable : public std::enable_shared_from_this<IReflectable> {
+	public:
+		virtual ~IReflectable() = default;
+		virtual std::string_view get_type_name() const = 0;
 
-			virtual std::any get_field_value_by_name(const char* name) const = 0;
+		virtual std::any get_field_value_by_name(const char* name) const = 0;
 
-			virtual std::any invoke_member_func_by_name(const char* name) = 0;
-			virtual std::any invoke_member_func_by_name(const char* name, std::any param1) = 0;
-			virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2) = 0;
-			virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3) = 0;
-			virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3, std::any param4) = 0;
-			// 不能无限增加，会增加虚表大小。最多支持4个参数的调用。
-		};
+		virtual std::any invoke_member_func_by_name(const char* name) = 0;
+		virtual std::any invoke_member_func_by_name(const char* name, std::any param1) = 0;
+		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2) = 0;
+		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3) = 0;
+		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3, std::any param4) = 0;
+		// 不能无限增加，会增加虚表大小。最多支持4个参数的调用。
+	};
 
+	namespace internal {
 		// 类型注册工具
 		class TypeRegistry {
 		public:
@@ -245,10 +246,10 @@ namespace refl {
 
 		// 用于注册类型信息的宏
 #define DECL_DYNAMIC_REFLECTABLE(TypeName) \
-    friend class refl::dynamic::TypeRegistryEntry<TypeName>; \
+    friend class refl::internal::TypeRegistryEntry<TypeName>; \
     static std::string_view static_type_name() { return #TypeName; } \
     virtual std::string_view get_type_name() const override { return static_type_name(); } \
-    static std::shared_ptr<::refl::dynamic::IReflectable> create_instance() { return std::make_shared<TypeName>(); } \
+    static std::shared_ptr<::refl::IReflectable> create_instance() { return std::make_shared<TypeName>(); } \
     static const bool is_registered; \
     std::any get_field_value_by_name(const char* name) const override { \
         return refl::get_field_value(this, name); \
@@ -274,14 +275,14 @@ namespace refl {
 		class TypeRegistryEntry {
 		public:
 			TypeRegistryEntry() {
-				::refl::dynamic::TypeRegistry::instance().register_type(T::static_type_name(), &T::create_instance);
+				::refl::internal::TypeRegistry::instance().register_type(T::static_type_name(), &T::create_instance);
 			}
 		};
 
 		// 为每个类型定义注册变量，这段宏需要出现在cpp中。
 #define REGEDIT_DYNAMIC_REFLECTABLE(TypeName) \
     const bool TypeName::is_registered = [] { \
-        static ::refl::dynamic::TypeRegistryEntry<TypeName> entry; \
+        static ::refl::internal::TypeRegistryEntry<TypeName> entry; \
         return true; \
     }();
 
@@ -296,7 +297,7 @@ namespace refl {
 
 
 	class CObject :
-		public refl::dynamic::IReflectable {
+		public refl::IReflectable {
 	private:
 		// 信号与槽的映射，键是信号名称，值是一组槽函数的信息
 		using connections_list_type = std::list<std::tuple< std::weak_ptr<IReflectable>, std::string>>;
@@ -389,9 +390,9 @@ namespace refl {
 	class QObject : public CObject {
 	private:
 		std::string objectName_;
-		std::weak_ptr<refl::dynamic::IReflectable> parent_;
+		std::weak_ptr<refl::IReflectable> parent_;
 		std::unordered_map<std::string, std::any> properties_;
-		std::list<std::shared_ptr<refl::dynamic::IReflectable>> children_;
+		std::list<std::shared_ptr<refl::IReflectable>> children_;
 	public:
 		void setObjectName(const char* name) {
 			objectName_ = name;
@@ -422,7 +423,7 @@ namespace refl {
 		}
 
 		void removeChild(CObject* child) {
-			auto ch = static_cast<refl::dynamic::IReflectable*>(child);
+			auto ch = static_cast<refl::IReflectable*>(child);
 			auto it = std::find_if(children_.begin(), children_.end(),
 				[this, ch](const auto& child) { return child.get() == ch; });
 			if (it != children_.end()) {
@@ -474,6 +475,10 @@ namespace refl {
 
 
 
+}// namespace refl
+
+
+namespace base {
 
 	class CEventLoop {
 	public:
@@ -490,6 +495,9 @@ namespace refl {
 		};
 		class IEventLoopHost {
 		public:
+			CEventLoop* eventLoop = nullptr;
+			virtual ~IEventLoopHost() = default;
+			virtual void onPostTask() = 0;
 			virtual void onWaitForTask(std::condition_variable& cond, std::unique_lock<std::mutex>& locker) = 0;
 			virtual void onEvent(TimedHandler& event) = 0;
 			virtual void onWaitForRun(std::condition_variable& cond, std::unique_lock<std::mutex>& locker, const TimePoint& timePoint) = 0;
@@ -504,11 +512,15 @@ namespace refl {
 	public:
 		void setHost(IEventLoopHost* host) {
 			this->host = host;
+			host->eventLoop = this;
 		}
 		void post(Handler handler, Duration delay = Duration::zero()) {
 			std::unique_lock<std::mutex> lock(mutex_);
 			tasks_.push({ Clock::now() + delay, std::move(handler) });
 			cond_.notify_one();
+			if (host) {
+				host->onPostTask();
+			}
 		}
 
 		void run() {
@@ -555,8 +567,68 @@ namespace refl {
 
 	};
 
-
-}// namespace refl
-
+}// namespace base
 
 
+#ifdef _WIN32
+#include <Windows.h>
+class CWindowsEventLoopHost : public base::CEventLoop::IEventLoopHost {
+	static constexpr UINT WM_WAKEUP = WM_USER + 15151515;
+	UINT_PTR timerID_ = 0;
+
+public:
+	~CWindowsEventLoopHost() {
+		if (timerID_) {
+			KillTimer(NULL, timerID_);
+		}
+	}
+
+	void onPostTask() override {
+		PostThreadMessage(GetCurrentThreadId(), WM_WAKEUP, 0, 0);
+	}
+
+	void onWaitForTask(std::condition_variable& cond, std::unique_lock<std::mutex>& locker) override {
+		MSG msg;
+		while (GetMessage(&msg, NULL, 0, 0)) {
+			if (msg.message == WM_QUIT) {
+				break;
+			}
+			if (handleWindowsMessage(msg)) {
+				break;
+			}
+			if (cond.wait_for(locker, std::chrono::milliseconds(0), [] { return true; })) {
+				break;
+			}
+		}
+	}
+
+	void onEvent(base::CEventLoop::TimedHandler& event) override {
+		event.handler();
+	}
+
+	void onWaitForRun(std::condition_variable& cond, std::unique_lock<std::mutex>& locker, const std::chrono::steady_clock::time_point& timePoint) override {
+		auto now = std::chrono::steady_clock::now();
+		if (now < timePoint) {
+			auto delay_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timePoint - now).count();
+			timerID_ = SetTimer(NULL, 0, (UINT)delay_ms, NULL);
+			MSG msg;
+			while (GetMessage(&msg, NULL, 0, 0)) {
+				if (handleWindowsMessage(msg)) {
+					break;
+				}
+			}
+		}
+	}
+
+	bool handleWindowsMessage(MSG& msg) {
+		if (msg.message == WM_TIMER && msg.wParam == timerID_) {
+			KillTimer(NULL, timerID_);
+			timerID_ = 0;
+			return true; // Timer event occurred
+		}
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+		return false;
+	}
+};
+#endif // _WIN32

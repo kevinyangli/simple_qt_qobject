@@ -69,8 +69,16 @@ std::any result = refl::invoke_member_func(&obj, "my_function", 123); // 调用�
 创建一个 `CEventLoop` 对象，安排任务并启动事件循环：
 
 ```cpp
-refl::CEventLoop event_loop;
+base::CEventLoop event_loop;
 event_loop.post([]{ std::cout << "Immediate task\n"; });
+event_loop.run();
+```
+
+支持Windows主消息循环的事件循环
+```cpp
+base::CEventLoop event_loop;
+CWindowsEventLoopHost host;
+loop.setHost(&host);
 event_loop.run();
 ```
 
