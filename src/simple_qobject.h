@@ -534,7 +534,9 @@ namespace base {
 						cond_.wait(lock, [this] { return !tasks_.empty() || !running_; });
 					}
 				}
-
+				if (!running_) {
+					break;
+				}
 				while (!tasks_.empty() && tasks_.top().time <= Clock::now()) {
 					auto task = tasks_.top();
 					tasks_.pop();
@@ -590,9 +592,6 @@ public:
 	void onWaitForTask(std::condition_variable& cond, std::unique_lock<std::mutex>& locker) override {
 		MSG msg;
 		while (GetMessage(&msg, NULL, 0, 0)) {
-			if (msg.message == WM_QUIT) {
-				break;
-			}
 			if (handleWindowsMessage(msg)) {
 				break;
 			}
@@ -610,7 +609,7 @@ public:
 		auto now = std::chrono::steady_clock::now();
 		if (now < timePoint) {
 			auto delay_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timePoint - now).count();
-			timerID_ = SetTimer(NULL, 0, (UINT)delay_ms, NULL);
+			timerID_ = SetTimer(NULL, 0, (UINT)delay_ms, NULL);//通过timer事件唤醒
 			MSG msg;
 			while (GetMessage(&msg, NULL, 0, 0)) {
 				if (handleWindowsMessage(msg)) {
@@ -621,6 +620,12 @@ public:
 	}
 
 	bool handleWindowsMessage(MSG& msg) {
+		if (msg.message == WM_QUIT) {
+			if (this->eventLoop) {
+				this->eventLoop->stop();//退出消息循环
+			}
+			return true;
+		}
 		if (msg.message == WM_TIMER && msg.wParam == timerID_) {
 			KillTimer(NULL, timerID_);
 			timerID_ = 0;
