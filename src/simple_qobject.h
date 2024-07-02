@@ -49,7 +49,6 @@ namespace refl {
 			constexpr T get_func() const { return Value; }
 		};
 
-		// 使用 std::any 来处理不同类型的字段值和函数返回值
 		template <typename T, typename Tuple, size_t N = 0>
 		std::any __get_field_value_impl(T& obj, const char* name, const Tuple& tp) {
 			if constexpr (N >= std::tuple_size_v<Tuple>) {
@@ -66,7 +65,6 @@ namespace refl {
 			}
 		}
 
-		// 使用 std::any 来处理不同类型的字段值和函数返回值
 		template <typename T, typename Tuple, typename Value, size_t N = 0>
 		std::any __assign_field_value_impl(T& obj, const char* name, const Value& value, const Tuple& tp) {
 			if constexpr (N >= std::tuple_size_v<Tuple>) {
@@ -138,7 +136,6 @@ namespace refl {
 		}
 	}
 
-	// 使用 std::any 来处理不同类型的字段值和函数返回值
 	template <typename T, size_t N = 0>
 	std::any get_field_value(T* obj, const char* name) {
 		return obj ? __get_field_value_impl(*obj, name, T::properties_()) : std::any();
@@ -168,7 +165,7 @@ namespace refl {
 	}
 
 
-	// 定义一个类型特征模板，用于获取属性信息
+	// 这个类型特征模板用于遍历获取反射信息
 	template <typename T>
 	struct For {
 		static_assert(std::is_class_v<T>, "Reflector requires a class type.");
@@ -201,8 +198,9 @@ namespace refl {
 		}
 	};
 
-	// 以下是动态反射机制的支持代码：
-	// 反射基类
+	// 上面都是静态反射功能，以下是动态反射机制的支持代码：
+	
+	// IReflectable提供动态反射功能的支持
 	class IReflectable : public std::enable_shared_from_this<IReflectable> {
 	public:
 		virtual ~IReflectable() = default;
@@ -215,7 +213,7 @@ namespace refl {
 		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2) = 0;
 		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3) = 0;
 		virtual std::any invoke_member_func_by_name(const char* name, std::any param1, std::any param2, std::any param3, std::any param4) = 0;
-		// 不能无限增加，会增加虚表大小。最多支持4个参数的调用。
+		// 不能无限增加，会增加虚表大小。因此最多支持4个参数的调用。
 	};
 
 	namespace internal {
@@ -279,7 +277,7 @@ namespace refl {
 			}
 		};
 
-		// 为每个类型定义注册变量，这段宏需要出现在cpp中。
+		// 为每个类型定义注册变量，这段宏需要出现在类的cpp中。
 #define REGEDIT_DYNAMIC_REFLECTABLE(TypeName) \
     const bool TypeName::is_registered = [] { \
         static ::refl::internal::TypeRegistryEntry<TypeName> entry; \
@@ -295,7 +293,7 @@ namespace refl {
 	}*/
 #define REFLEC_IMPL_SIGNAL(...) raw_emit_signal_impl(__func__ , __VA_ARGS__)
 
-
+	// CObject在IReflectable的基础上，额外提供信号槽功能的支持
 	class CObject :
 		public refl::IReflectable {
 	private:
@@ -373,7 +371,7 @@ namespace refl {
 
 		template <typename T>
 		bool disconnect(T connection) {
-			//T是个这个类型：std::make_optional(std::make_tuple(this, itMap, it)); 由于T过于复杂，就直接用模板算了
+			//T是个这个类型：std::make_optional(std::make_tuple(this, itMap, it)); 由于T过于复杂，就直接用模板了
 			if (!connection) {
 				return false;
 			}
@@ -384,9 +382,9 @@ namespace refl {
 			std::get<1>(tuple)->second.erase(std::get<2>(tuple));
 			return true;
 		}
-
 	};
 
+	// QObject在CObject的基础上，提供父子关系、动态属性的支持
 	class QObject : public CObject {
 	private:
 		std::string objectName_;
@@ -473,13 +471,12 @@ namespace refl {
 
 	};
 
-
-
 }// namespace refl
 
 
 namespace base {
 
+	// CEventLoop提供事件循环功能支持
 	class CEventLoop {
 	public:
 		using Clock = std::chrono::steady_clock;
