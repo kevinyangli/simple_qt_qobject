@@ -156,15 +156,22 @@ int main() {
 		std::cout << "Delayed task\n";
 		}, std::chrono::seconds(1));//延时一秒
 
-	std::thread loop_thread([&loop]() {
-		loop.run();
-		});
+	loop.post([]() {
+		std::cout << "Delayed task in 3 second\n";
+		}, std::chrono::seconds(3));//延时3秒
 
-	std::this_thread::sleep_for(std::chrono::seconds(2));
-	loop.stop();//停止消息循环
-	loop_thread.join();
-
-
+	if (true) {
+		loop.run();//主线程直接run
+	}
+	else {
+		// 或者起一个其他线程run:
+		std::thread loop_thread([&loop]() {
+			loop.run();
+			});
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+		loop.stop();//停止消息循环
+		loop_thread.join();
+	}
 	std::cout << "====end=====" << std::endl;
 	return 0;
 }
