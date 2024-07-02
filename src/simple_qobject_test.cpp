@@ -144,9 +144,8 @@ int main() {
 
 	// 事件循环部分：
 	std::cout << "---------------------事件循环部分：" << std::endl;
-	base::CEventLoop loop;
 	CWindowsEventLoopHost host;
-	loop.setHost(&host);
+	base::CEventLoop loop(&host);
 
 	loop.post([]() {
 		std::cout << "Immediate task\n";

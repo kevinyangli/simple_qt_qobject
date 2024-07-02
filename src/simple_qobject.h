@@ -468,7 +468,6 @@ namespace refl {
 		void setProperty(const char* name, const std::any& value) {
 			properties_[name] = value;
 		}
-
 	};
 
 }// namespace refl
@@ -507,7 +506,7 @@ namespace base {
 		std::atomic<bool> running_{ true };
 
 	public:
-		void setHost(IEventLoopHost* host) {
+		CEventLoop(IEventLoopHost* host = nullptr) {
 			this->host = host;
 			host->eventLoop = this;
 		}
@@ -544,7 +543,6 @@ namespace base {
 					else {
 						task.handler();
 					}
-
 					lock.lock();
 				}
 
