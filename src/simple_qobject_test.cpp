@@ -160,6 +160,11 @@ int main() {
 		std::cout << "Delayed task in 3 second\n";
 		}, std::chrono::seconds(3));//延时3秒
 
+	loop.post([&]() {
+		std::cout << "stop msg loop in 6 second\n";
+		loop.stop();
+		}, std::chrono::seconds(6));//延时6秒
+
 	if (true) {
 		loop.run();//主线程直接run
 	}
