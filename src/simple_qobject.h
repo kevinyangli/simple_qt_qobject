@@ -199,7 +199,7 @@ namespace refl {
 	};
 
 	// 上面都是静态反射功能，以下是动态反射机制的支持代码：
-	
+
 	// IReflectable提供动态反射功能的支持
 	class IReflectable : public std::enable_shared_from_this<IReflectable> {
 	public:
@@ -482,10 +482,15 @@ namespace base {
 		using TimePoint = Clock::time_point;
 		using Duration = Clock::duration;
 		using Handler = std::function<void()>;
-		struct TimedHandler {
+		using CancelHandle = std::shared_ptr<bool>;
+
+		struct TaskEventInfo {
 			TimePoint time;
 			Handler handler;
-			bool operator<(const TimedHandler& other) const {
+			Duration interval;
+			bool repeat = false;
+			std::shared_ptr<bool> active;
+			bool operator<(const TaskEventInfo& other) const {
 				return time > other.time;
 			}
 		};
@@ -495,21 +500,35 @@ namespace base {
 			virtual ~IEventLoopHost() = default;
 			virtual void onPostTask() = 0;
 			virtual void onWaitForTask(std::condition_variable& cond, std::unique_lock<std::mutex>& locker) = 0;
-			virtual void onEvent(TimedHandler& event) = 0;
+			virtual void onEvent(TaskEventInfo& event) = 0;
 			virtual void onWaitForRun(std::condition_variable& cond, std::unique_lock<std::mutex>& locker, const TimePoint& timePoint) = 0;
 		};
 	private:
 		IEventLoopHost* host = nullptr;
-		std::priority_queue<TimedHandler> tasks_;
+		std::priority_queue<TaskEventInfo> tasks_;
 		std::mutex mutex_;
 		std::condition_variable cond_;
 		std::atomic<bool> running_{ true };
 
+		static thread_local CEventLoop* s_currentThreadEventLoop;
 	public:
 		CEventLoop(IEventLoopHost* host = nullptr) {
 			this->host = host;
 			host->eventLoop = this;
+			if (s_currentThreadEventLoop == nullptr) {
+				s_currentThreadEventLoop = this;
+			}
 		}
+		~CEventLoop() {
+			if (s_currentThreadEventLoop == this) {
+				s_currentThreadEventLoop = nullptr;
+			}
+		}
+
+		CEventLoop* currentThreadEventLoop() {
+			return s_currentThreadEventLoop;
+		}
+
 		void post(Handler handler, Duration delay = Duration::zero()) {
 			std::unique_lock<std::mutex> lock(mutex_);
 			tasks_.push({ Clock::now() + delay, std::move(handler) });
@@ -517,6 +536,37 @@ namespace base {
 			if (host) {
 				host->onPostTask();
 			}
+		}
+
+		//可以取消的post
+		CancelHandle postCancellable(Handler handler, Duration delay = Duration::zero()) {
+			std::unique_lock<std::mutex> lock(mutex_);
+			TaskEventInfo timedHandler{ Clock::now() + delay, std::move(handler), {}, false, std::make_shared<bool>(true) };
+			tasks_.push(timedHandler);
+			cond_.notify_one();
+			if (host) {
+				host->onPostTask();
+			}
+			return timedHandler.active;
+		}
+
+		// 停止一个周期性的定时器
+		void cancelPostTask(CancelHandle& active) {
+			if (active) { *active = false; }
+		}
+
+		// 启动一个周期性的定时器
+		CancelHandle startTimer(Handler handler, Duration interval) {
+			std::unique_lock<std::mutex> lock(mutex_);
+			TaskEventInfo timedHandler{ Clock::now() + interval, std::move(handler), interval, true, std::make_shared<bool>(true) };
+			tasks_.push(timedHandler);
+			cond_.notify_one();
+			return timedHandler.active;
+		}
+
+		// 停止一个周期性的定时器
+		void stopTimer(CancelHandle& active) {
+			if (active) { *active = false; }
 		}
 
 		void run() {
@@ -537,13 +587,24 @@ namespace base {
 					auto task = tasks_.top();
 					tasks_.pop();
 					lock.unlock();
-					if (host) {
-						host->onEvent(task);
+					bool isActive = task.active.get() ? (*task.active.get()) : true;
+					if (isActive) {
+						if (host) {
+							host->onEvent(task);
+						}
+						else {
+							task.handler();
+						}
+						lock.lock();
+
+						if (task.repeat) { // 是个timer,计算下一次触发时机并放回去
+							task.time = Clock::now() + task.interval;
+							tasks_.push(task);
+						}
 					}
 					else {
-						task.handler();
+						lock.lock();
 					}
-					lock.lock();
 				}
 
 				if (!tasks_.empty()) {
@@ -596,7 +657,7 @@ public:
 		}
 	}
 
-	void onEvent(base::CEventLoop::TimedHandler& event) override {
+	void onEvent(base::CEventLoop::TaskEventInfo& event) override {
 		event.handler();
 	}
 

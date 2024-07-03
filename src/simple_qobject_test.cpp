@@ -147,6 +147,11 @@ int main() {
 	CWindowsEventLoopHost host;
 	base::CEventLoop loop(&host);
 
+	// 启动一个每秒触发一次的周期性定时器
+	auto timerId = loop.startTimer([] {
+		std::cout << "Periodic timer 500ms triggered." << std::endl;
+		}, std::chrono::milliseconds(500));
+
 	loop.post([]() {
 		std::cout << "Immediate task\n";
 		});//马上执行
@@ -160,9 +165,14 @@ int main() {
 		}, std::chrono::seconds(3));//延时3秒
 
 	loop.post([&]() {
-		std::cout << "stop msg loop in 6 second\n";
+		std::cout << "timer stoped!\n";
+		loop.stopTimer(timerId);
+		}, std::chrono::seconds(4));//延时4秒
+
+	loop.post([&]() {
+		std::cout << "stop msg loop in 8 second\n";
 		loop.stop();
-		}, std::chrono::seconds(6));//延时6秒
+		}, std::chrono::seconds(8));//延时6秒
 
 	if (true) {
 		loop.run();//主线程直接run
